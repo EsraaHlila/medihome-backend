@@ -35,7 +35,7 @@ function authenticateToken(req, res, next) {
 function authorizeRoles(...allowedRoles) {
   return (req, res, next) => {
     if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied:insufficient permissions' });
     }
     next();
   };
@@ -91,7 +91,6 @@ app.post('/login', async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
-        // Create JWT token
         const token = jwt.sign(
           {
             id: user.id,
@@ -99,24 +98,27 @@ app.post('/login', async (req, res) => {
             role: user.role
           },
           JWT_SECRET,
-          { expiresIn: '2h' }
+          { expiresIn: '1h' }
         );
+
+        console.log(token)
 
     res.status(200).json({
       message: 'Login successful!',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        available: user.available
-      }
+      token
     });
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
   }
 });
+
+
+//Protected route accessible only by doctors or nurses
+app.get('/api/private', authenticateToken, authorizeRoles('doctor', 'nurse'), (req, res) => {
+  res.send('This is a protected route for doctors or nurses');
+});
+
 
 // Start the server
 app.listen(port, () => {
