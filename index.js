@@ -1,15 +1,16 @@
 const express = require('express');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
 const app = express();
 const port = 3000;
 const saltRounds = 10;
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
-// Middleware to parse JSON in request body
 app.use(express.json());
 
-// PostgreSQL connection configuration
 const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
@@ -18,17 +19,36 @@ const pool = new Pool({
   port: 5432,
 });
 
-// Home route to test server
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+}
+
+function authorizeRoles(...allowedRoles) {
+  return (req, res, next) => {
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    next();
+  };
+}
+//example route
 app.get('/', (req, res) => {
   res.send('MediHome backend is running!');
 });
-
-//Register
+//register route
 app.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, available=false} = req.body;
 
-    // password hashing
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     const result = await pool.query(
@@ -51,12 +71,12 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// Login
+//login route
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user by email
+    //find the user by searching for the corresponding email
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
 
     if (result.rows.length === 0) {
@@ -65,12 +85,22 @@ app.post('/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // Compare hashed password
+    //to compare the password after rehashing
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
+        // Create JWT token
+        const token = jwt.sign(
+          {
+            id: user.id,
+            email: user.email,
+            role: user.role
+          },
+          JWT_SECRET,
+          { expiresIn: '2h' }
+        );
 
     res.status(200).json({
       message: 'Login successful!',
