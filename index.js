@@ -443,6 +443,48 @@ app.post('/labs', authenticateToken, authorizeRoles('admin'), async (req, res) =
 
 //route to add tests types
 
+
+app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  const { name, description, category, lab_id } = req.body;
+
+  //required fields
+  if (!name || !category || !lab_id) {
+    return res.status(400).json({
+      message: 'Missing required fields: name, category, or lab_id.'
+    });
+  }
+
+  const validCategories = ['general_tests'];
+
+  if (!validCategories.includes(category)) {
+    return res.status(400).json({
+      message: 'Invalid test category.',
+      validCategories: validCategories
+    });
+  }
+
+  try {
+    const labCheck = await pool.query('SELECT * FROM labs WHERE id = $1', [lab_id]);
+    if (labCheck.rowCount === 0) {
+      return res.status(404).json({ message: 'Lab not found with the provided lab_id.' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO tests (name, description, category, lab_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, description || '', category, lab_id]
+    );
+
+    res.status(201).json({
+      message: 'Test added successfully!',
+      test: result.rows[0]
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add test.' });
+  }
+});
+
+
 /*app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   const { id } = req.params;
   const { name,category } = req.body;
