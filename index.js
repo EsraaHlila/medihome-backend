@@ -485,41 +485,6 @@ app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) 
 });
 
 
-/*app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  const { id } = req.params;
-  const { name,category } = req.body;
-
-  // status types
-  const validcategory = ['general_tests']; // Example values
-
-  // check the validity of the status
-  if (!validcategory.includes(category)) {
-    return res.status(400).json({
-      message: 'Invalid category value.',
-      validcategory: validcategory
-    });
-  }
-
-  try {
-    const result = await pool.query(
-      'INSERT INTO labs (name,category) values ($1,$2)',
-      [name, category]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: 'Service not found.' });
-    }
-
-    res.status(200).json({
-      message: 'lab added successfully!',
-      service: result.rows[0]
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Failed to add lab.' });
-  }
-});
-*/
 // Start the server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
