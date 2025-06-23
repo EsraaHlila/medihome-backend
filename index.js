@@ -44,32 +44,83 @@ function authorizeRoles(...allowedRoles) {
 app.get('/', (req, res) => {
   res.send('MediHome backend is running!');
 });
+
+
+
+
 //register route
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, available=false} = req.body;
+    const { name, email, password, role, available = false } = req.body;
+
+    if (!name || !email || !password || !role) {
+          return res.status(400).json({
+            message: 'Missing required fields: name, email, password, or role.',
+          });
+        }
+
 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+    // to get the role id from the roles table in order to select a valid role
+    //const roleResult = await pool.query('SELECT id FROM roles WHERE name = $1', [role]);
+
+    //validate the roles
+    /*if (roleResult.rows.length === 0) {
+      const allRoles = await pool.query('SELECT name FROM roles');
+      const roleNames = allRoles.rows.map(r => r.name);
+      return res.status(400).json({
+        message: 'Invalid role selected',
+        validRoles: roleNames
+      });
+    }*/
+
+
+    const validRoles = ['admin', 'doctor', 'patient', 'nurse'];
+        if (!validRoles.includes(role)) {
+          return res.status(400).json({
+            message: 'Invalid role selected.',
+            validRoles: validRoles
+          });
+        }
+
+
+
+    const emailCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (emailCheck.rows.length > 0) {
+          return res.status(400).json({
+            message: 'Email already registered. Please use a different email address.',
+          });
+        }
+
     const result = await pool.query(
-      'INSERT INTO users (name, email, password, role,available) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      'INSERT INTO users (name, email, password, role, available) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [name, email, hashedPassword, role, available]
     );
 
     res.status(201).json({
       message: 'User registered successfully!',
-      user: {
-        id: result.rows[0].id,
-        name: result.rows[0].name,
-        email: result.rows[0].email,
-        role: result.rows[0].role,
-      }
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server error');
+
+    //email already exists error
+    if (err.code === '23505') {
+          return res.status(400).json({
+            message: 'Email already exists. Please choose another email.',
+          });
+        }
+
+        // a general server error
+        res.status(500).json({
+          message: 'Server error. Please try again later.',
+        });
+
   }
 });
+
+
+
 
 //login route
 app.post('/login', async (req, res) => {
@@ -78,6 +129,7 @@ app.post('/login', async (req, res) => {
 
     //find the user by searching for the corresponding email
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    console.log(result)
 
     if (result.rows.length === 0) {
       return res.status(400).json({ message: 'Invalid email or password' });
@@ -105,6 +157,7 @@ app.post('/login', async (req, res) => {
 
     res.status(200).json({
       message: 'Login successful!',
+      //role:result
       token
     });
   } catch (err) {
@@ -161,7 +214,7 @@ app.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, re
 
 
 //admins only(doctors, admin and nurses) can add a new service type
-app.post('/service-types', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
+app.post('/service_types/add', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
   const { name, description } = req.body;
 
   try {
@@ -181,7 +234,7 @@ app.post('/service-types', authenticateToken, authorizeRoles('admin', 'doctor', 
 });
 
 //get the list of all service types
-app.get('/service_types', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
+app.get('/service_types/all', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
   const result = await pool.query('SELECT * FROM service_types');
   res.json(result.rows);
 });
@@ -205,8 +258,8 @@ app.post('/services/request', authenticateToken, authorizeRoles('patient'), asyn
 
 
 
-//assign someone to a service(admins only, doctors ,nurses)
-app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
+//assign someone to a service(admins only, doctors)
+app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'doctor'), async (req, res) => {
   const { id } = req.params;
   const { assigned_to } = req.body;
 
@@ -227,12 +280,34 @@ app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'do
   const { id } = req.params;
   const { status } = req.body;
 
+  // status types
+  const validStatuses = ['pending', 'assigned', 'completed', 'failed']; // Example values
+
+  // check the validity of the status
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      message: 'Invalid status value.',
+      validStatuses: validStatuses
+    });
+  }
+
   try {
-    await pool.query('UPDATE services SET status = $1 WHERE id = $2', [status, id]);
-    res.send(`Service status updated to ${status}`);
+    const result = await pool.query(
+      'UPDATE services SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    res.status(200).json({
+      message: `Service status updated to '${status}'`,
+      service: result.rows[0]
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Failed to update status');
+    res.status(500).json({ message: 'Failed to update service status.' });
   }
 });
 
@@ -288,7 +363,7 @@ app.get('/services/history', authenticateToken, authorizeRoles('patient'), async
 
 
 //services status follow up can be viewed by admins only(doctors, nurses, admin)
-app.patch('/services/:id/status', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
+/*app.patch('/services/:id/status', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
   const { status } = req.body;
   const { id } = req.params;
   try {
@@ -298,7 +373,7 @@ app.patch('/services/:id/status', authenticateToken, authorizeRoles('admin', 'do
     console.error(err);
     res.status(500).send('Failed to update service');
   }
-});
+});*/
 
 
 
@@ -319,8 +394,94 @@ app.get('/service_types/search', authenticateToken, async (req, res) => {
   }
 });
 
+//get all roles route -- for test
+app.get('/roles', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM roles');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Failed to fetch roles');
+  }
+});
 
+//route to add a lab
+app.post('/labs', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { name,category } = req.body;
+
+  // status types
+  const validcategory = ['blood_tests']; // Example values
+
+  // check the validity of the status
+  if (!validcategory.includes(category)) {
+    return res.status(400).json({
+      message: 'Invalid category value.',
+      validcategory: validcategory
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO labs (name,category) values ($1,$2)',
+      [name, category]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    res.status(200).json({
+      message: 'lab added successfully!',
+      service: result.rows[0]
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add lab.' });
+  }
+});
+
+//route to add tests types
+
+/*app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { name,category } = req.body;
+
+  // status types
+  const validcategory = ['general_tests']; // Example values
+
+  // check the validity of the status
+  if (!validcategory.includes(category)) {
+    return res.status(400).json({
+      message: 'Invalid category value.',
+      validcategory: validcategory
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO labs (name,category) values ($1,$2)',
+      [name, category]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    res.status(200).json({
+      message: 'lab added successfully!',
+      service: result.rows[0]
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add lab.' });
+  }
+});
+*/
 // Start the server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
+
+
+
