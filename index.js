@@ -190,11 +190,11 @@ app.get('/service_types', authenticateToken, authorizeRoles('admin', 'nurse', 'd
 
 //request or create a service(patients only)
 app.post('/services/request', authenticateToken, authorizeRoles('patient'), async (req, res) => {
-  const { service_type_id, zone, preferred_time } = req.body;
+  const { type, zone, schedule } = req.body;
   try {
     await pool.query(
-      'INSERT INTO services (patient_id, service_type_id, zone, preferred_time, status) VALUES ($1, $2, $3, $4, $5)',
-      [req.user.id, service_type_id, zone, preferred_time, 'pending']
+      'INSERT INTO services (patient_id, type, zone, schedule, status) VALUES ($1, $2, $3, $4, $5)',
+      [req.user.id, type, zone, schedule, 'pending']
     );
     res.status(201).send('Service requested successfully');
   } catch (err) {
@@ -217,10 +217,10 @@ app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'nu
 
 
 //get the list of service requests(admins only: admin, doctor and nurses)
-app.get('/services', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
+/*app.get('/services', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
   const result = await pool.query('SELECT * FROM services');
   res.json(result.rows);
-});
+});*/
 
 //update a service status
 app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'doctor', 'admin'), async (req, res) => {
@@ -300,6 +300,24 @@ app.patch('/services/:id/status', authenticateToken, authorizeRoles('admin', 'do
   }
 });
 
+
+
+//search route
+app.get('/service_types/search', authenticateToken, async (req, res) => {
+  const { q } = req.query;
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM service_types WHERE LOWER(name) LIKE LOWER($1)',
+      [`%${q}%`]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Search failed');
+  }
+});
 
 
 // Start the server
