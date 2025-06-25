@@ -53,7 +53,7 @@ app.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, available = false } = req.body;
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password ) /*!role)*/ {
           return res.status(400).json({
             message: 'Missing required fields: name, email, password, or role.',
           });
@@ -65,24 +65,14 @@ app.post('/register', async (req, res) => {
     // to get the role id from the roles table in order to select a valid role
     //const roleResult = await pool.query('SELECT id FROM roles WHERE name = $1', [role]);
 
-    //validate the roles
-    /*if (roleResult.rows.length === 0) {
-      const allRoles = await pool.query('SELECT name FROM roles');
-      const roleNames = allRoles.rows.map(r => r.name);
-      return res.status(400).json({
-        message: 'Invalid role selected',
-        validRoles: roleNames
-      });
-    }*/
 
-
-    const validRoles = ['admin', 'doctor', 'patient', 'nurse'];
+    /*const validRoles = ['admin', 'doctor', 'patient', 'nurse'];
         if (!validRoles.includes(role)) {
           return res.status(400).json({
             message: 'Invalid role selected.',
             validRoles: validRoles
           });
-        }
+        }*/
 
 
 
@@ -147,7 +137,7 @@ app.post('/login', async (req, res) => {
           {
             id: user.id,
             email: user.email,
-            role: user.role
+            /*role: user.role*/
           },
           JWT_SECRET,
           { expiresIn: '1h' }
@@ -157,8 +147,13 @@ app.post('/login', async (req, res) => {
 
     res.status(200).json({
       message: 'Login successful!',
-      //role:result
-      token
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (err) {
     console.error(err);
@@ -411,7 +406,7 @@ app.post('/labs', authenticateToken, authorizeRoles('admin'), async (req, res) =
   const { name,category } = req.body;
 
   // status types
-  const validcategory = ['blood_tests']; // Example values
+  const validcategory = ['blood_tests'];
 
   // check the validity of the status
   if (!validcategory.includes(category)) {
