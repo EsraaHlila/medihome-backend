@@ -5,10 +5,11 @@ CREATE TABLE users (
   email VARCHAR(100) UNIQUE,
   password VARCHAR(100),
   role role_type NOT NULL,
-  available boolean default false
-  phone_number INT
-  city VARCHAR(100)
-  address VARCHAR(100)
+  available boolean default false,
+  phone_number VARCHAR(20),
+  city VARCHAR(100),
+  address VARCHAR(100),
+  emergency VARCHAR(20)
 );
 
 -- Service

@@ -23,14 +23,20 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
+  console.log('Received token:', token); // Log the token received
+
   if (!token) return res.status(401).json({ message: 'No token provided' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
+    if (err) {
+      console.error('JWT Verification Error:', err); // Log the JWT error
+      return res.status(403).json({ message: 'Invalid token' });
+    }
     req.user = user;
     next();
   });
 }
+
 
 function authorizeRoles(...allowedRoles) {
   return (req, res, next) => {
@@ -140,7 +146,7 @@ app.post('/login', async (req, res) => {
             role: user.role
           },
           JWT_SECRET,
-          { expiresIn: '1h' }
+          { expiresIn: '5h' }
         );
 
         console.log(token)
@@ -169,43 +175,79 @@ app.get('/api/private', authenticateToken, authorizeRoles('doctor', 'nurse'), (r
 
 //route to get all users for admin only
 app.get('/users', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  const users = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users');
+  const users = await pool.query('SELECT id, name, email, role,address, phone_number, city, emergency FROM users');
   res.json(users.rows);
 });
 
 //get a user by id(admin only)
 app.get('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   const { id } = req.params;
-  const user = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users WHERE id = $1', [id]);
+  const user = await pool.query('SELECT id, name, email, role,address, phone_number, city, emergency FROM users WHERE id = $1', [id]);
   if (user.rows.length === 0) return res.status(404).send('User not found');
   res.json(user.rows[0]);
 });
 
 //get your profile
 app.get('/me', authenticateToken, async (req, res) => {
-  const result = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users WHERE id = $1', [req.user.id]);
-  res.json(result.rows[0]);
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email, role, address, phone_number, emergency, city FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = result.rows[0];
+
+    // map DB fields to frontend expected structure
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone_number,
+        emergency: user.emergency,
+        address: user.address,
+        city: user.city,
+        language: 'English' // placeholder, since not in DB
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error while fetching profile' });
+  }
 });
+
 
 //update your profile
 app.put('/me/update', authenticateToken, async (req, res) => {
-  const { name, email, role,address, phone_number, city } = req.body;
-  await pool.query(
-    `UPDATE users SET name=$1, email=$2, role=$3, address=$4, phone_number=$5, city=$6
-     WHERE id = $7`,
-    [name, email, role, address, phone_number, city, req.user.id]
-  );
-  res.send('Profile updated successfully');
+  const { name, email, phone, address, emergency, city } = req.body;
+
+  try {
+    await pool.query(
+      `UPDATE users 
+       SET name = $1, email = $2, phone_number = $3, address = $4, emergency = $5, city = $6 
+       WHERE id = $7`,
+      [name, email, phone_number, address, emergency, city, req.user.id]
+    );
+
+    res.json({ message: 'Profile updated successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error while updating profile' });
+  }
 });
+
 
 
 //update a user (admin only)
 app.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   const { name, email, role,address, phone_number, city } = req.body;
   const { id } = req.params;
-  await pool.query('UPDATE users SET name=$1, email=$2, role=$3, address=$4, phone_number=$5, city=$6
-                         WHERE id = $7`,
-                        [name, email, role, address, phone_number, city, req.user.id]);
+  await pool.query('UPDATE users SET name=$1, email=$2, role=$3, address=$4, phone_number=$5, city=$6, emergency=$7 WHERE id = $8'
+  ,[name, email, role, address, phone_number, city, emergency, req.user.id]);
   res.send('User updated');
 });
 
