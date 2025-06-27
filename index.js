@@ -51,11 +51,11 @@ app.get('/', (req, res) => {
 //register route
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, available = false } = req.body;
+    const { name, email, password, role, city, available = false } = req.body;
 
-    if (!name || !email || !password ) /*!role)*/ {
+    if (!name || !email || !password || !city ) /*!role)*/ {
           return res.status(400).json({
-            message: 'Missing required fields: name, email, password, or role.',
+            message: 'Missing required fields: name, email, password, city, or role.',
           });
         }
 
@@ -84,8 +84,8 @@ app.post('/register', async (req, res) => {
         }
 
     const result = await pool.query(
-      'INSERT INTO users (name, email, password, role, available) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [name, email, hashedPassword, role, available]
+      'INSERT INTO users (name, email, password, role, available, city) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [name, email, hashedPassword, role, available, city]
     );
 
     res.status(201).json({
@@ -169,31 +169,31 @@ app.get('/api/private', authenticateToken, authorizeRoles('doctor', 'nurse'), (r
 
 //route to get all users for admin only
 app.get('/users', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  const users = await pool.query('SELECT id, name, email, role FROM users');
+  const users = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users');
   res.json(users.rows);
 });
 
 //get a user by id(admin only)
 app.get('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   const { id } = req.params;
-  const user = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [id]);
+  const user = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users WHERE id = $1', [id]);
   if (user.rows.length === 0) return res.status(404).send('User not found');
   res.json(user.rows[0]);
 });
 
 //get your profile
 app.get('/me', authenticateToken, async (req, res) => {
-  const result = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [req.user.id]);
+  const result = await pool.query('SELECT id, name, email, role,address, phone_number, city FROM users WHERE id = $1', [req.user.id]);
   res.json(result.rows[0]);
 });
 
 //update your profile
 app.put('/me/update', authenticateToken, async (req, res) => {
-  const { name, email, role } = req.body;
+  const { name, email, role,address, phone_number, city } = req.body;
   await pool.query(
-    `UPDATE users SET name=$1, email=$2, role=$3
-     WHERE id = $4`,
-    [name, email, role, req.user.id]
+    `UPDATE users SET name=$1, email=$2, role=$3, address=$4, phone_number=$5, city=$6
+     WHERE id = $7`,
+    [name, email, role, address, phone_number, city, req.user.id]
   );
   res.send('Profile updated successfully');
 });
@@ -201,9 +201,11 @@ app.put('/me/update', authenticateToken, async (req, res) => {
 
 //update a user (admin only)
 app.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  const { name, email, role } = req.body;
+  const { name, email, role,address, phone_number, city } = req.body;
   const { id } = req.params;
-  await pool.query('UPDATE users SET name = $1, email = $2, role = $3 WHERE id = $4', [name, email, role, id]);
+  await pool.query('UPDATE users SET name=$1, email=$2, role=$3, address=$4, phone_number=$5, city=$6
+                         WHERE id = $7`,
+                        [name, email, role, address, phone_number, city, req.user.id]);
   res.send('User updated');
 });
 
@@ -276,7 +278,7 @@ app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'do
   const { status } = req.body;
 
   // status types
-  const validStatuses = ['pending', 'assigned', 'completed', 'failed']; // Example values
+  const validStatuses = ['pending', 'assigned', 'completed', 'failed'];
 
   // check the validity of the status
   if (!validStatuses.includes(status)) {

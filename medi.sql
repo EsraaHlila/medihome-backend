@@ -6,6 +6,9 @@ CREATE TABLE users (
   password VARCHAR(100),
   role role_type NOT NULL,
   available boolean default false
+  phone_number INT
+  city VARCHAR(100)
+  address VARCHAR(100)
 );
 
 -- Service
@@ -40,6 +43,9 @@ CREATE TYPE lab_category AS ENUM ('blood_tests');
 CREATE TYPE test_category AS ENUM ('general_tests');
 
 CREATE TYPE status_type AS ENUM ('pending','completed','assigned','failed');
+
+ALTER TYPE status_type ADD VALUE 'cancelled';
+
 
 CREATE TABLE labs (
   id SERIAL PRIMARY KEY,
