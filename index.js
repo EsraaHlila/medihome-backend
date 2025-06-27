@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
 //register route
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, city, available = false } = req.body;
+    const { name, email, password, role='patient', city, available = false } = req.body;
 
     if (!name || !email || !password || !city ) /*!role)*/ {
           return res.status(400).json({
@@ -137,7 +137,7 @@ app.post('/login', async (req, res) => {
           {
             id: user.id,
             email: user.email,
-            /*role: user.role*/
+            role: user.role
           },
           JWT_SECRET,
           { expiresIn: '1h' }
