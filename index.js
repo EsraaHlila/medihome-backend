@@ -139,33 +139,79 @@ app.post('/login', async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
-        const token = jwt.sign(
-          {
-            id: user.id,
-            email: user.email,
-            role: user.role
-          },
-          JWT_SECRET,
-          { expiresIn: '5h' }
-        );
+        const accessToken = jwt.sign(
+		{
+			id: user.id,
+			email: user.email,
+			role: user.role
+			},
+			JWT_SECRET,
+			{ expiresIn: '6h' } // Short-lived access token
+			);
 
-        console.log(token)
+			const refreshToken = jwt.sign(
+			{ id: user.id },
+			JWT_SECRET,
+				{ expiresIn: '30d' } // Long-lived refresh token
+			);
 
-    res.status(200).json({
-      message: 'Login successful!',
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
+res.status(200).json({
+  message: 'Login successful!',
+  accessToken,
+  refreshToken,
+  user: {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role
+  }
+});
+
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
   }
 });
+
+app.post('/token/refresh', async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'Refresh token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, JWT_SECRET);
+
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = result.rows[0];
+
+    const newAccessToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    res.json({
+      accessToken: newAccessToken
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(403).json({ message: 'Invalid refresh token' });
+  }
+});
+
+
+
+
+
+
 
 
 //Protected route accessible only by doctors or nurses
@@ -186,7 +232,6 @@ app.get('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, re
   if (user.rows.length === 0) return res.status(404).send('User not found');
   res.json(user.rows[0]);
 });
-
 //get your profile
 app.get('/me', authenticateToken, async (req, res) => {
   try {
@@ -223,7 +268,7 @@ app.get('/me', authenticateToken, async (req, res) => {
 
 //update your profile
 app.put('/me/update', authenticateToken, async (req, res) => {
-  const { name, email, phone, address, emergency, city } = req.body;
+  const { name, email, phone_number, address, emergency, city } = req.body;
 
   try {
     await pool.query(

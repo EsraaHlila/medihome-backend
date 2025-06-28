@@ -47,6 +47,8 @@ CREATE TYPE status_type AS ENUM ('pending','completed','assigned','failed');
 
 ALTER TYPE status_type ADD VALUE 'cancelled';
 
+CREATE TYPE city_list AS ENUM ('Tunis','Sousse','Monastir','Sfax')
+
 
 CREATE TABLE labs (
   id SERIAL PRIMARY KEY,
