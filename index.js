@@ -333,10 +333,10 @@ app.post('/services/request', authenticateToken, authorizeRoles('patient'), asyn
       'INSERT INTO services (patient_id, type, zone, schedule, status) VALUES ($1, $2, $3, $4, $5)',
       [req.user.id, type, zone, schedule, 'pending']
     );
-    res.status(201).send('Service requested successfully');
+    res.status(201).json({ message: 'Service requested successfully' });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Failed to request service');
+    res.status(500).json({ message: 'Failed to request service' });
   }
 });
 
@@ -567,6 +567,60 @@ app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) 
     res.status(500).json({ message: 'Failed to add test.' });
   }
 });
+
+
+app.patch('/services/:id/cancel', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const service = await pool.query('SELECT schedule, patient_id FROM services WHERE id = $1', [id]);
+
+    if (service.rowCount === 0) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    const { schedule, patient_id } = service.rows[0];
+
+    // Only allow the owner of the request to cancel it
+    if (patient_id !== req.user.id) {
+      return res.status(403).json({ message: 'You are not allowed to cancel this service.' });
+    }
+
+    const now = new Date();
+    const serviceDate = new Date(schedule);
+    const diffInDays = (serviceDate - now) / (1000 * 60 * 60 * 24);
+
+    if (diffInDays < 1) {
+      return res.status(400).json({ message: 'You can only cancel the request at least 1 day in advance.' });
+    }
+
+    await pool.query('UPDATE services SET status = $1 WHERE id = $2', ['cancelled', id]);
+    res.json({ message: 'Service request cancelled successfully.' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to cancel the service.' });
+  }
+});
+
+
+
+
+app.get('/labs/search', authenticateToken, async (req, res) => {
+  const { city } = req.query;
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM labs WHERE LOWER(city) = LOWER($1)',
+      [city]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Search failed');
+  }
+});
+
 
 
 // Start the server
