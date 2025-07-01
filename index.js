@@ -172,7 +172,7 @@ res.status(200).json({
     res.status(500).send('Server error');
   }
 });
-
+// lezem nchoufoha fazet kifeh nrefreshiou
 app.post('/token/refresh', async (req, res) => {
   const { refreshToken } = req.body;
 
@@ -214,7 +214,7 @@ app.post('/token/refresh', async (req, res) => {
 
 
 
-//Protected route accessible only by doctors or nurses
+//Protected route accessible only by doctors or nurses-exemple
 app.get('/api/private', authenticateToken, authorizeRoles('doctor', 'nurse'), (req, res) => {
   res.send('This is a protected route for doctors or nurses');
 });
@@ -232,6 +232,11 @@ app.get('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, re
   if (user.rows.length === 0) return res.status(404).send('User not found');
   res.json(user.rows[0]);
 });
+
+
+
+
+
 //get your profile
 app.get('/me', authenticateToken, async (req, res) => {
   try {
@@ -297,14 +302,95 @@ app.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, re
 });
 
 
-//admins only(doctors, admin and nurses) can add a new service type
+//admins only(doctors, admin and nurses) can add a new service type he must add to the enum first and then add it here
+
+
 app.post('/service_types/add', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, price, categorie } = req.body;
+
+  const validCategories = ['nurse', 'lab'];
+
+  // ✅ Validate the category
+  if (!validCategories.includes(categorie)) {
+    return res.status(400).json({
+      message: 'Invalid categorie value.',
+      validCategories
+    });
+  }
+
+  // ✅ Strict validation for the service name
+  if (!/^[a-z_]{3,30}$/i.test(name)) {
+    return res.status(400).json({
+      message: 'Invalid name format. It should be 3-30 characters, lowercase letters and underscores only.'
+    });
+  }
+
+  try {
+    // Determine the appropriate enum type
+    const enumType = categorie === 'lab' ? 'test_category' : 'nur_types';
+
+    // Check if the name already exists in the enum
+    const enumCheck = await pool.query(`
+      SELECT e.enumlabel
+      FROM pg_type t
+      JOIN pg_enum e ON t.oid = e.enumtypid
+      WHERE t.typname = $1 AND e.enumlabel = $2
+    `, [enumType, name]);
+
+    // Add the name to the enum if it doesn't exist
+    if (enumCheck.rowCount === 0) {
+      await pool.query(`ALTER TYPE ${enumType} ADD VALUE IF NOT EXISTS '${name}'`);
+    }
+
+    // Insert the new service type
+    const result = await pool.query(
+      'INSERT INTO service_types (name, description, price, categorie) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, description, price, categorie]
+    );
+
+    res.status(201).json({
+      message: 'Service type added successfully',
+      serviceType: result.rows[0]
+    });
+
+  } catch (err) {
+	  
+	  if (err.code === '23505') { // unique_violation error code in PostgreSQL
+    return res.status(409).json({ message: 'Service type with this name already exists.' });
+  }
+    console.error('Error adding service type:', err);
+    res.status(500).send('Failed to add service type');
+  }
+});
+
+
+
+
+/*app.post('/service_types/add', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
+  const { name, description, price, categorie } = req.body;
+  
+  const validcat = ['nurse', 'lab'];
+
+  if (!validcat.includes(status)) {
+    return res.status(400).json({
+      message: 'Invalid categorie value.',
+      validcat: validcat
+    });
+  }
+  
+  const validname = ['vitamin','heart','diabetes','senior','women','complete_checkup'];
+
+  if (!validname.includes(status)) {
+    return res.status(400).json({
+      message: 'Invalid name value.',
+      validcat: validcat
+    });
+  }
 
   try {
     const result = await pool.query(
-      'INSERT INTO service_types (name, description) VALUES ($1, $2) RETURNING *',
-      [name, description]
+      'INSERT INTO service_types (name, description, price, categorie) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, description, price, categorie]
     );
 
     res.status(201).json({
@@ -315,7 +401,7 @@ app.post('/service_types/add', authenticateToken, authorizeRoles('admin', 'docto
     console.error(err);
     res.status(500).send('Failed to add service type');
   }
-});
+});*/
 
 //get the list of all service types
 app.get('/service_types/all', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
@@ -325,42 +411,274 @@ app.get('/service_types/all', authenticateToken, authorizeRoles('admin', 'nurse'
 
 
 
-//request or create a service(patients only)
-app.post('/services/request', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+//request or create a blood test
+
+
+
+app.post('/services/lab', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+  const { category, zone, schedule } = req.body;
+
+  try {
+    // Step 1: Find service type by name (category) and lab
+    const serviceTypeResult = await pool.query(
+      'SELECT id, price FROM service_types WHERE name = $1 AND categorie = $2',
+      [category, 'lab']
+    );
+
+    if (serviceTypeResult.rowCount === 0) {
+      return res.status(404).json({ message: 'Lab service type not found.' });
+    }
+
+    const { id: ser_id, price } = serviceTypeResult.rows[0];
+
+    // Step 2: Insert the test (category is required by the schema)
+    await pool.query(
+      `INSERT INTO tests (patient_id, category, zone, schedule, price, status, ser_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.user.id, category, zone, schedule, price, 'pending', ser_id]
+    );
+
+    res.status(201).json({ message: 'Lab test requested successfully' });
+
+  } catch (err) {
+    console.error('Error requesting lab test:', err);
+    res.status(500).json({ message: 'Failed to request lab test' });
+  }
+});
+
+
+
+
+
+/*app.post('/services/lab', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+  const { category, zone, schedule } = req.body;
+  try {
+    await pool.query(
+      'INSERT INTO tests (patient_id, category, zone, schedule, price, status) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.user.id, category, zone, schedule, `select price from service_types where category = categorie `, 'pending']
+    );
+    res.status(201).json({ message: 'Test requested successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to request test' });
+  }
+});*/
+
+
+
+
+
+
+//request a nurse service
+
+
+
+app.post('/services/nurse', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+  const { type, zone, schedule } = req.body;
+
+  try {
+    const serviceTypeResult = await pool.query(
+      'SELECT id, price FROM service_types WHERE name = $1 AND categorie = $2',
+      [type, 'nurse']
+    );
+
+    if (serviceTypeResult.rowCount === 0) {
+      return res.status(404).json({ message: 'Nurse service type not found.' });
+    }
+
+    const { price } = serviceTypeResult.rows[0];
+
+    await pool.query(
+      'INSERT INTO nurse_req (patient_id, zone, schedule, price, status) VALUES ($1, $2, $3, $4, $5)',
+      [req.user.id, zone, schedule, price, 'pending']
+    );
+
+    res.status(201).json({ message: 'Nurse service requested successfully' });
+
+  } catch (err) {
+    console.error('Error requesting nurse service:', err);
+    res.status(500).json({ message: 'Failed to request nurse service' });
+  }
+});
+
+
+
+
+
+
+/*app.post('/services/nurse', authenticateToken, authorizeRoles('patient'), async (req, res) => {
   const { type, zone, schedule } = req.body;
   try {
     await pool.query(
-      'INSERT INTO services (patient_id, type, zone, schedule, status) VALUES ($1, $2, $3, $4, $5)',
-      [req.user.id, type, zone, schedule, 'pending']
+      'INSERT INTO services (patient_id, type, zone, schedule, price, status) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.user.id, type, zone, schedule, `select price from service_types where type = categorie`, 'pending']
     );
     res.status(201).json({ message: 'Service requested successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to request service' });
   }
-});
+});*/
 
 
 
-//assign someone to a service(admins only, doctors)
-app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'doctor'), async (req, res) => {
+
+
+//assign someone to a service(admins only, doctors)---------------------------------------------------
+
+
+
+app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'doctor', 'nurse'), async (req, res) => {
   const { id } = req.params;
   const { assigned_to } = req.body;
 
-  await pool.query('UPDATE services SET assigned_to = $1, status = $2 WHERE id = $3', [assigned_to, 'assigned', id]);
+  try {
+    // 1. Try nurse_req
+    const nurseResult = await pool.query(`
+      SELECT st.categorie AS category
+      FROM nurse_req s
+      JOIN service_types st ON s.ser_id = st.id
+      WHERE s.id = $1
+    `, [id]);
 
-  res.send('Service assigned successfully');
+    // 2. Try tests
+    const labResult = await pool.query(`
+      SELECT st.categorie AS category
+      FROM tests t
+      JOIN service_types st ON t.ser_id = st.id
+      WHERE t.id = $1
+    `, [id]);
+
+    let category = null;
+    let tableToUpdate = null;
+
+    if (nurseResult.rowCount > 0) {
+      category = nurseResult.rows[0].category;
+      tableToUpdate = 'nurse_req';
+    } else if (labResult.rowCount > 0) {
+      category = labResult.rows[0].category;
+      tableToUpdate = 'tests';
+    } else {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    // 3. Assign in the correct table
+    await pool.query(
+      `UPDATE ${tableToUpdate} SET assigned_to = $1, status = $2 WHERE id = $3`,
+      [assigned_to, 'assigned', id]
+    );
+
+    res.send('Service assigned successfully');
+  } catch (error) {
+    console.error('Error assigning service:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 
-//get the list of service requests(admins only: admin, doctor and nurses)
-/*app.get('/services', authenticateToken, authorizeRoles('admin', 'nurse', 'doctor'), async (req, res) => {
-  const result = await pool.query('SELECT * FROM services');
-  res.json(result.rows);
+
+
+
+
+/*app.patch('/services/:id/assign', authenticateToken, authorizeRoles('admin', 'doctor','nurse'), async (req, res) => {
+  const { id } = req.params;
+  const { assigned_to } = req.body;
+  try {
+    // 1. Get the service_type and its category
+    const serviceResult = await pool.query(`
+      SELECT categorie 
+      FROM service_types st
+      WHERE st.id = services.ser_id`);
+
+    if (serviceResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }	
+	const category = serviceResult.rows[0].category;
+if (category === 'nurse') {
+      await pool.query('UPDATE services SET assigned_to = $1, status = $2 WHERE id = $3', [assigned_to, 'assigned', id]);
+    } else if (category === 'lab') {
+      await pool.query('UPDATE tests SET assigned_to = $1, status = $2 WHERE id = $3', [assigned_to, 'assigned', id]);
+    } else {
+      return res.status(400).json({ error: 'Unknown service category' });
+    }
+
+  res.send('Service assigned successfully');
 });*/
 
-//update a service status
+//update a service status------------------------------------------------------
+
+
+
+
 app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'doctor', 'admin'), async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const validStatuses = ['pending', 'assigned', 'completed', 'failed'];
+
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      message: 'Invalid status value.',
+      validStatuses: validStatuses
+    });
+  }
+
+  try {
+    // 1. Try to find the service in nurse_req
+    const nurseResult = await pool.query(`
+      SELECT st.categorie AS category
+      FROM nurse_req s
+      JOIN service_types st ON s.ser_id = st.id
+      WHERE s.id = $1
+    `, [id]);
+
+    // 2. Try to find the service in tests
+    const labResult = await pool.query(`
+      SELECT st.categorie AS category
+      FROM tests t
+      JOIN service_types st ON t.ser_id = st.id
+      WHERE t.id = $1
+    `, [id]);
+
+    let category = null;
+    let tableToUpdate = null;
+
+    if (nurseResult.rowCount > 0) {
+      category = nurseResult.rows[0].category;
+      tableToUpdate = 'nurse_req';
+    } else if (labResult.rowCount > 0) {
+      category = labResult.rows[0].category;
+      tableToUpdate = 'tests';
+    } else {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    // 3. Update the correct table
+    const updateResult = await pool.query(
+      `UPDATE ${tableToUpdate} SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+      [status, id]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ message: 'Record not found in the corresponding table.' });
+    }
+
+    res.status(200).json({
+      message: `Status updated to '${status}' for ${category} service.`,
+      updated: updateResult.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Error updating status:', err);
+    res.status(500).json({ message: 'Failed to update service status.' });
+  }
+});
+
+
+
+
+
+/*app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'doctor', 'admin'), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -394,7 +712,7 @@ app.patch('/services/:id/status', authenticateToken, authorizeRoles('nurse', 'do
     res.status(500).json({ message: 'Failed to update service status.' });
   }
 });
-
+*/
 //availability management
 
 // manage and modify availability for nurses and doctors
@@ -423,25 +741,25 @@ app.get('/availability/:user_id', authenticateToken, async (req, res) => {
 //services history:
 //admin can view all services requests history
 app.get('/services', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  const result = await pool.query('SELECT * FROM services');
+  const result = await pool.query('SELECT * FROM services and tests');
   res.json(result.rows);
 });
 
 //doctors can view services history assigned to them
 app.get('/services/doctor', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
-    const result = await pool.query('SELECT * FROM services WHERE assigned_to = $1', [req.user.id]);
+    const result = await pool.query('SELECT * FROM services and tests WHERE assigned_to = $1', [req.user.id]);
     res.json(result.rows);
   });
 
 //nurses can view services history assigned to them
 app.get('/services/nurse', authenticateToken, authorizeRoles('nurse'), async (req, res) => {
-  const result = await pool.query('SELECT * FROM services WHERE assigned_to = $1', [req.user.id]);
+  const result = await pool.query('SELECT * FROM services and tests WHERE assigned_to = $1', [req.user.id]);
   res.json(result.rows);
 });
 
 //patients can view their own services requests history
 app.get('/services/history', authenticateToken, authorizeRoles('patient'), async (req, res) => {
-  const result = await pool.query('SELECT * FROM services WHERE patient_id = $1', [req.user.id]);
+  const result = await pool.query('SELECT * FROM services and tests WHERE patient_id = $1', [req.user.id]);
   res.json(result.rows);
 });
 
@@ -525,10 +843,10 @@ app.post('/labs', authenticateToken, authorizeRoles('admin'), async (req, res) =
   }
 });
 
-//route to add tests types
+//route to add tests types-zeyed-------------------------------------------------------------------------------
 
 
-app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+/*app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   const { name, description, category, lab_id } = req.body;
 
   //required fields
@@ -538,7 +856,7 @@ app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) 
     });
   }
 
-  const validCategories = ['general_tests'];
+  const validCategories = ['general_tests','vitamin','heart','diabetes'];
 
   if (!validCategories.includes(category)) {
     return res.status(400).json({
@@ -567,9 +885,76 @@ app.post('/tests', authenticateToken, authorizeRoles('admin'), async (req, res) 
     res.status(500).json({ message: 'Failed to add test.' });
   }
 });
+*/
+//cancel a service-----------------------------------------------------
 
 
 app.patch('/services/:id/cancel', authenticateToken, authorizeRoles('patient'), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Check if it's a nurse request in nurse_req
+    const nurseResult = await pool.query(`
+      SELECT s.schedule, s.patient_id, st.categorie AS category
+      FROM nurse_req s
+      JOIN service_types st ON s.ser_id = st.id
+      WHERE s.id = $1
+    `, [id]);
+
+    // 2. Check if it's a lab test in tests
+    const labResult = await pool.query(`
+      SELECT t.schedule, t.patient_id, st.categorie AS category
+      FROM tests t
+      JOIN service_types st ON t.ser_id = st.id
+      WHERE t.id = $1
+    `, [id]);
+
+    let serviceData = null;
+    let tableToUpdate = null;
+
+    if (nurseResult.rowCount > 0) {
+      serviceData = nurseResult.rows[0];
+      tableToUpdate = 'nurse_req';
+    } else if (labResult.rowCount > 0) {
+      serviceData = labResult.rows[0];
+      tableToUpdate = 'tests';
+    } else {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    const { schedule, patient_id, category } = serviceData;
+
+    // Verify that the requester is the patient who created the service
+    if (patient_id !== req.user.id) {
+      return res.status(403).json({ message: 'You are not allowed to cancel this service.' });
+    }
+
+    // Only allow cancellation if at least 1 day in advance
+    const now = new Date();
+    const serviceDate = new Date(schedule);
+    const diffInDays = (serviceDate - now) / (1000 * 60 * 60 * 24);
+
+    if (diffInDays < 1) {
+      return res.status(400).json({ message: 'You can only cancel the request at least 1 day in advance.' });
+    }
+
+    await pool.query(
+      `UPDATE ${tableToUpdate} SET status = $1 WHERE id = $2`,
+      ['cancelled', id]
+    );
+
+    res.json({ message: 'Service request cancelled successfully.' });
+
+  } catch (err) {
+    console.error('Error cancelling service:', err);
+    res.status(500).json({ message: 'Failed to cancel the service.' });
+  }
+});
+
+
+
+
+/*app.patch('/services/:id/cancel', authenticateToken, authorizeRoles('patient'), async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -602,7 +987,7 @@ app.patch('/services/:id/cancel', authenticateToken, authorizeRoles('patient'), 
     res.status(500).json({ message: 'Failed to cancel the service.' });
   }
 });
-
+*/
 
 
 
@@ -621,6 +1006,42 @@ app.get('/labs/search', authenticateToken, async (req, res) => {
   }
 });
 
+
+
+//change the availability of a servie type
+
+
+app.patch('/service_types/:id/availability', authenticateToken, authorizeRoles('admin', 'doctor','nurse'), async (req, res) => {
+  const { id } = req.params;
+  const { available } = req.body;
+
+  // Validate availability is a boolean
+  if (typeof available !== 'boolean') {
+    return res.status(400).json({
+      message: '`available` must be a boolean value (true or false).'
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE service_types SET available = $1 WHERE id = $2 RETURNING *',
+      [available, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Service type not found.' });
+    }
+
+    res.status(200).json({
+      message: `Availability updated successfully.`,
+      updatedServiceType: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Error updating availability:', err);
+    res.status(500).json({ message: 'Failed to update service availability.' });
+  }
+});
 
 
 // Start the server
